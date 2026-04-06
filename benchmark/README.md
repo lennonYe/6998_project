@@ -69,6 +69,6 @@ Or run individually:
 
 To use WandB:
 ```bash
-wandb login  # enter your API key
+wandb login 
 ./run_single.sh visualize-wandb
 ```
