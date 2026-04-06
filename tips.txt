@@ -1,0 +1,11 @@
+
+Scratch dir:
+/insomnia001/depts/edu/users/yy3608
+
+
+home dir:
+/insomnia001/home/yy3608
+
+
+resource allocation:
+srun --pty -t 0-04:00 --gres=gpu:l40s:1 -A edu /bin/bash
