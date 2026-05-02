@@ -164,47 +164,85 @@ def plot_gpu_memory(data, save_path):
     print(f"Saved: {save_path}")
 
 
-def upload_to_wandb(data, figures_dir):
-    """Upload results and figures to WandB."""
+def _log_per_concurrency(fw_label, variant_data, prompt_type):
+    """Yield (step, key, value) tuples for time-series WandB logging."""
+    rows = []
+    for n in CONCURRENCY_LEVELS:
+        key = str(n)
+        if key not in variant_data.get(prompt_type, {}):
+            continue
+        r = variant_data[prompt_type][key]
+        rows.append({
+            "concurrency": n,
+            f"{fw_label}/{prompt_type}/throughput_tps": r["total_throughput_tps"],
+            f"{fw_label}/{prompt_type}/avg_ttft_ms": r["avg_ttft_s"] * 1000,
+            f"{fw_label}/{prompt_type}/avg_latency_ms": r["avg_latency_s"] * 1000,
+        })
+    return rows
+
+
+def upload_to_wandb(data, figures_dir, run_name=None, run_tags=None, run_config=None):
+    """Upload results and figures to WandB. Tag with model/quant for cross-run comparison."""
     try:
         import wandb
     except ImportError:
         print("wandb not installed, skipping upload.")
         return
 
-    run = wandb.init(project=WANDB_PROJECT, name="benchmark-comparison", reinit=True)
+    run = wandb.init(
+        project=WANDB_PROJECT,
+        name=run_name or "benchmark-comparison",
+        tags=run_tags or [],
+        config=run_config or {},
+        reinit=True,
+    )
 
-    # Log summary metrics
-    summary = {}
+    # Per-concurrency time series, one row per concurrency level
+    series = {}
     for fw_name, fw_data in data.items():
         if fw_name == "baseline":
             for pt in ["short_prompts", "shared_prefix_prompts"]:
-                if "16" in fw_data.get(pt, {}):
-                    r = fw_data[pt]["16"]
-                    prefix = f"baseline/{pt}"
-                    summary[f"{prefix}/throughput_tps"] = r["total_throughput_tps"]
-                    summary[f"{prefix}/avg_ttft_ms"] = r["avg_ttft_s"] * 1000
+                for row in _log_per_concurrency("baseline", fw_data, pt):
+                    n = row.pop("concurrency")
+                    series.setdefault(n, {}).update(row)
         elif fw_name == "vllm":
             for pt in ["short_prompts", "shared_prefix_prompts"]:
-                if "16" in fw_data.get(pt, {}):
-                    r = fw_data[pt]["16"]
-                    prefix = f"vllm/{pt}"
-                    summary[f"{prefix}/throughput_tps"] = r["total_throughput_tps"]
-                    summary[f"{prefix}/avg_ttft_ms"] = r["avg_ttft_s"] * 1000
+                for row in _log_per_concurrency("vllm", fw_data, pt):
+                    n = row.pop("concurrency")
+                    series.setdefault(n, {}).update(row)
         elif fw_name == "sglang":
             for variant in ["no_radix", "with_radix"]:
                 if variant not in fw_data:
                     continue
+                fw_label = f"sglang_{variant}"
                 for pt in ["short_prompts", "shared_prefix_prompts"]:
-                    if "16" in fw_data[variant].get(pt, {}):
-                        r = fw_data[variant][pt]["16"]
-                        prefix = f"sglang_{variant}/{pt}"
-                        summary[f"{prefix}/throughput_tps"] = r["total_throughput_tps"]
-                        summary[f"{prefix}/avg_ttft_ms"] = r["avg_ttft_s"] * 1000
+                    for row in _log_per_concurrency(fw_label, fw_data[variant], pt):
+                        n = row.pop("concurrency")
+                        series.setdefault(n, {}).update(row)
 
-    wandb.log(summary)
+    for n in sorted(series.keys()):
+        wandb.log({"concurrency": n, **series[n]}, step=n)
 
-    # Log figures
+    # Headline summary at concurrency=16 (table-friendly)
+    summary = {}
+    for fw_name, fw_data in data.items():
+        if fw_name == "sglang":
+            for variant in ["no_radix", "with_radix"]:
+                v = fw_data.get(variant, {})
+                for pt in ["short_prompts", "shared_prefix_prompts"]:
+                    if "16" in v.get(pt, {}):
+                        r = v[pt]["16"]
+                        summary[f"summary/sglang_{variant}/{pt}/throughput_tps"] = r["total_throughput_tps"]
+                        summary[f"summary/sglang_{variant}/{pt}/ttft_ms"] = r["avg_ttft_s"] * 1000
+        else:
+            for pt in ["short_prompts", "shared_prefix_prompts"]:
+                if "16" in fw_data.get(pt, {}):
+                    r = fw_data[pt]["16"]
+                    summary[f"summary/{fw_name}/{pt}/throughput_tps"] = r["total_throughput_tps"]
+                    summary[f"summary/{fw_name}/{pt}/ttft_ms"] = r["avg_ttft_s"] * 1000
+    if summary:
+        wandb.summary.update(summary)
+
     for img_path in sorted(figures_dir.glob("*.png")):
         wandb.log({img_path.stem: wandb.Image(str(img_path))})
 
@@ -216,6 +254,8 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--results-dir", default="results")
     parser.add_argument("--no-wandb", action="store_true")
+    parser.add_argument("--label", default=None,
+                        help="WandB run name + tag (e.g. Qwen2.5-1.5B-FP16). Defaults to results-dir basename.")
     args = parser.parse_args()
 
     results_dir = Path(__file__).resolve().parent.parent / args.results_dir
@@ -226,6 +266,8 @@ def main():
     if not data:
         print("No results found. Run benchmarks first.")
         return
+
+    label = args.label or results_dir.name
 
     # --- Short prompts ---
     fw_short = extract_metrics(data, "short_prompts")
@@ -258,7 +300,17 @@ def main():
 
     # --- WandB upload ---
     if not args.no_wandb:
-        upload_to_wandb(data, figures_dir)
+        # Pull model + quantization off any framework's data block (they all carry it).
+        model_id = next(
+            (d.get("model") for d in data.values() if d.get("model")), None)
+        quant = next(
+            (d.get("quantization") for d in data.values() if d.get("quantization")), None)
+        upload_to_wandb(
+            data, figures_dir,
+            run_name=label,
+            run_tags=[label] + ([quant] if quant else []),
+            run_config={"model": model_id, "quantization": quant, "label": label},
+        )
 
     print("\nDone! Figures saved to:", figures_dir)
 

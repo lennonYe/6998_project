@@ -1,0 +1,25 @@
+# Secrets
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.venv/
+venv/
+
+# WandB local cache (CLI dumps run artifacts here)
+wandb/
+
+# PyTorch profiler trace dumps are huge (100+ MB), keep only the CSV summary
+**/profiler/*trace*.json
+**/profiler/*.pt.trace.json
+
+# Server logs
+*.log
+
+# OS
+.DS_Store
