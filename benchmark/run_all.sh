@@ -1,7 +1,7 @@
 #!/bin/bash
 # ============================================================
 # LLM Serving Framework Benchmark - Full Pipeline
-# Run this on a GPU node (e.g., L40S via srun)
+# Run this on a GPU node (NVIDIA L4 24GB or L40S 48GB).
 # ============================================================
 
 set -e
@@ -9,14 +9,23 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
-ENV_DIR="/insomnia001/depts/edu/users/yy3608/envs"
+ENV_DIR="${ENV_DIR:-$HOME/yym_self_project/envs}"
+MODEL="${MODEL:-Qwen/Qwen2.5-1.5B-Instruct}"
 
-# Check GPU
+# Load secrets if .env exists at repo root
+if [ -f "$SCRIPT_DIR/../.env" ]; then
+    set -a
+    # shellcheck disable=SC1091
+    source "$SCRIPT_DIR/../.env"
+    set +a
+fi
+
 echo "=== GPU Info ==="
 nvidia-smi --query-gpu=name,memory.total --format=csv,noheader
 echo ""
-
-MODEL="Qwen/Qwen2.5-1.5B-Instruct"
+echo "Model: $MODEL"
+echo "Env dir: $ENV_DIR"
+echo ""
 
 echo "============================================"
 echo "Step 1: Baseline HuggingFace Benchmark"

@@ -53,16 +53,20 @@ def wait_for_server(url, timeout=300, proc=None):
     raise TimeoutError(f"Server not ready after {timeout}s")
 
 
-def launch_server(model, port, extra_args=None):
+def launch_server(model, port, max_model_len=4096, gpu_mem_util=0.85,
+                  quantization=None, extra_args=None):
     """Launch vLLM server as a subprocess."""
     cmd = [
         sys.executable, "-m", "vllm.entrypoints.openai.api_server",
         "--model", model,
         "--port", str(port),
         "--dtype", DTYPE,
-        "--max-model-len", "4096",
-        "--disable-log-requests",
+        "--max-model-len", str(max_model_len),
+        "--gpu-memory-utilization", str(gpu_mem_util),
+        "--no-enable-log-requests",
     ]
+    if quantization:
+        cmd.extend(["--quantization", quantization])
     if extra_args:
         cmd.extend(extra_args)
 
@@ -97,20 +101,22 @@ def kill_server(proc):
         log_file.close()
 
 
-async def send_request(session, prompt, request_id):
+async def send_request(session, prompt, request_id, model_name=None):
     """Send a single chat completion request and measure timing."""
     payload = {
-        "model": MODEL_NAME,
+        "model": model_name or MODEL_NAME,
         "messages": [{"role": "user", "content": prompt}],
         "max_tokens": MAX_NEW_TOKENS,
         "temperature": 0,
         "stream": True,
+        "stream_options": {"include_usage": True},
     }
 
     t_start = time.perf_counter()
     ttft = None
-    full_text = ""
-    output_tokens = 0
+    chunk_count = 0
+    usage_tokens = None
+    input_tokens = None
 
     async with session.post(
         f"{API_BASE}/v1/chat/completions",
@@ -125,21 +131,28 @@ async def send_request(session, prompt, request_id):
                 break
             try:
                 chunk = json.loads(data_str)
-                delta = chunk["choices"][0]["delta"]
-                if "content" in delta and delta["content"]:
+                # Final usage chunk has empty choices
+                if chunk.get("usage"):
+                    usage_tokens = chunk["usage"].get("completion_tokens")
+                    input_tokens = chunk["usage"].get("prompt_tokens")
+                choices = chunk.get("choices") or []
+                if not choices:
+                    continue
+                delta = choices[0].get("delta", {})
+                if delta.get("content"):
                     if ttft is None:
                         ttft = time.perf_counter() - t_start
-                    full_text += delta["content"]
-                    output_tokens += 1  # approximate; each chunk ≈ 1 token for most models
+                    chunk_count += 1
             except (json.JSONDecodeError, KeyError, IndexError):
                 continue
 
     t_end = time.perf_counter()
     total_time = t_end - t_start
+    output_tokens = usage_tokens if usage_tokens is not None else chunk_count
 
     return {
         "request_id": request_id,
-        "input_tokens": None,  # will be filled from server stats if available
+        "input_tokens": input_tokens,
         "output_tokens": output_tokens,
         "total_time_s": total_time,
         "ttft_s": ttft if ttft else total_time,
@@ -147,13 +160,13 @@ async def send_request(session, prompt, request_id):
     }
 
 
-async def run_concurrent_batch(prompts, concurrency_label):
+async def run_concurrent_batch(prompts, concurrency_label, model_name=None):
     """Send all prompts concurrently and gather results."""
     timeout = aiohttp.ClientTimeout(total=300)
     async with aiohttp.ClientSession(timeout=timeout) as session:
         batch_start = time.perf_counter()
         tasks = [
-            send_request(session, prompt, i)
+            send_request(session, prompt, i, model_name)
             for i, prompt in enumerate(prompts)
         ]
         results = await asyncio.gather(*tasks)
@@ -193,6 +206,10 @@ def main():
     parser.add_argument("--output", default="results/vllm_results.json")
     parser.add_argument("--no-launch", action="store_true",
                         help="Don't launch server (assume already running)")
+    parser.add_argument("--max-model-len", type=int, default=4096)
+    parser.add_argument("--gpu-memory-utilization", type=float, default=0.85)
+    parser.add_argument("--quantization", default=None,
+                        help="vLLM quantization arg, e.g. 'awq', 'fp8', 'gptq'")
     args = parser.parse_args()
 
     output_path = Path(__file__).resolve().parent.parent / args.output
@@ -203,7 +220,12 @@ def main():
 
     proc = None
     if not args.no_launch:
-        proc = launch_server(args.model, args.port)
+        proc = launch_server(
+            args.model, args.port,
+            max_model_len=args.max_model_len,
+            gpu_mem_util=args.gpu_memory_utilization,
+            quantization=args.quantization,
+        )
 
     try:
         wait_for_server(API_BASE, proc=proc)
@@ -214,6 +236,7 @@ def main():
             "framework": "vllm",
             "model": args.model,
             "dtype": DTYPE,
+            "quantization": args.quantization,
             "gpu_memory_serving_mb": gpu_mem_serving,
             "short_prompts": {},
             "shared_prefix_prompts": {},
@@ -224,7 +247,7 @@ def main():
         for n in CONCURRENCY_LEVELS:
             prompts = (SHORT_PROMPTS * ((n // len(SHORT_PROMPTS)) + 1))[:n]
             print(f"\nConcurrency={n}...")
-            result = asyncio.run(run_concurrent_batch(prompts, n))
+            result = asyncio.run(run_concurrent_batch(prompts, n, args.model))
             result["gpu_memory_mb"] = get_vllm_gpu_memory()
 
             all_results["short_prompts"][str(n)] = result
@@ -238,7 +261,7 @@ def main():
             suffixes = (SHARED_PREFIX_SUFFIXES * ((n // len(SHARED_PREFIX_SUFFIXES)) + 1))[:n]
             prompts = [SHARED_PREFIX + s for s in suffixes]
             print(f"\nConcurrency={n}...")
-            result = asyncio.run(run_concurrent_batch(prompts, n))
+            result = asyncio.run(run_concurrent_batch(prompts, n, args.model))
             result["gpu_memory_mb"] = get_vllm_gpu_memory()
 
             all_results["shared_prefix_prompts"][str(n)] = result

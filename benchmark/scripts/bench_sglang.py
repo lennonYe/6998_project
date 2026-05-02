@@ -25,7 +25,7 @@ from config import (
 API_BASE = f"http://localhost:{SGLANG_PORT}"
 
 
-def wait_for_server(url, timeout=300, proc=None):
+def wait_for_server(url, timeout=900, proc=None):
     start = time.time()
     while time.time() - start < timeout:
         if proc and proc.poll() is not None:
@@ -68,13 +68,13 @@ def _launch(cmd, log_name):
     return proc
 
 
-def launch_server(model, port, extra_args=None):
+def launch_server(model, port, mem_fraction=0.80, extra_args=None):
     cmd = [
         sys.executable, "-m", "sglang.launch_server",
         "--model-path", model,
         "--port", str(port),
         "--dtype", DTYPE,
-        "--mem-fraction-static", "0.85",
+        "--mem-fraction-static", str(mem_fraction),
         "--disable-radix-cache",
     ]
     if extra_args:
@@ -82,14 +82,14 @@ def launch_server(model, port, extra_args=None):
     return _launch(cmd, "sglang_noradix_server")
 
 
-def launch_server_with_radix(model, port, extra_args=None):
+def launch_server_with_radix(model, port, mem_fraction=0.80, extra_args=None):
     """Launch SGLang with RadixAttention enabled (default behavior)."""
     cmd = [
         sys.executable, "-m", "sglang.launch_server",
         "--model-path", model,
         "--port", str(port),
         "--dtype", DTYPE,
-        "--mem-fraction-static", "0.85",
+        "--mem-fraction-static", str(mem_fraction),
     ]
     if extra_args:
         cmd.extend(extra_args)
@@ -109,19 +109,22 @@ def kill_server(proc):
         log_file.close()
 
 
-async def send_request(session, prompt, request_id, api_base):
+async def send_request(session, prompt, request_id, api_base, model_name=None):
     """Send request via OpenAI-compatible API."""
     payload = {
-        "model": MODEL_NAME,
+        "model": model_name or MODEL_NAME,
         "messages": [{"role": "user", "content": prompt}],
         "max_tokens": MAX_NEW_TOKENS,
         "temperature": 0,
         "stream": True,
+        "stream_options": {"include_usage": True},
     }
 
     t_start = time.perf_counter()
     ttft = None
-    output_tokens = 0
+    chunk_count = 0
+    usage_tokens = None
+    input_tokens = None
 
     async with session.post(
         f"{api_base}/v1/chat/completions",
@@ -136,19 +139,27 @@ async def send_request(session, prompt, request_id, api_base):
                 break
             try:
                 chunk = json.loads(data_str)
-                delta = chunk["choices"][0]["delta"]
-                if "content" in delta and delta["content"]:
+                if chunk.get("usage"):
+                    usage_tokens = chunk["usage"].get("completion_tokens")
+                    input_tokens = chunk["usage"].get("prompt_tokens")
+                choices = chunk.get("choices") or []
+                if not choices:
+                    continue
+                delta = choices[0].get("delta", {})
+                if delta.get("content"):
                     if ttft is None:
                         ttft = time.perf_counter() - t_start
-                    output_tokens += 1
+                    chunk_count += 1
             except (json.JSONDecodeError, KeyError, IndexError):
                 continue
 
     t_end = time.perf_counter()
     total_time = t_end - t_start
+    output_tokens = usage_tokens if usage_tokens is not None else chunk_count
 
     return {
         "request_id": request_id,
+        "input_tokens": input_tokens,
         "output_tokens": output_tokens,
         "total_time_s": total_time,
         "ttft_s": ttft if ttft else total_time,
@@ -156,12 +167,12 @@ async def send_request(session, prompt, request_id, api_base):
     }
 
 
-async def run_concurrent_batch(prompts, concurrency_label, api_base):
+async def run_concurrent_batch(prompts, concurrency_label, api_base, model_name=None):
     timeout = aiohttp.ClientTimeout(total=300)
     async with aiohttp.ClientSession(timeout=timeout) as session:
         batch_start = time.perf_counter()
         tasks = [
-            send_request(session, prompt, i, api_base)
+            send_request(session, prompt, i, api_base, model_name)
             for i, prompt in enumerate(prompts)
         ]
         results = await asyncio.gather(*tasks)
@@ -193,7 +204,7 @@ def get_gpu_memory():
         return 0.0
 
 
-def run_benchmark_suite(api_base, label):
+def run_benchmark_suite(api_base, label, model_name=None):
     """Run full benchmark suite against a given server endpoint."""
     results = {"short_prompts": {}, "shared_prefix_prompts": {}}
 
@@ -201,7 +212,7 @@ def run_benchmark_suite(api_base, label):
     for n in CONCURRENCY_LEVELS:
         prompts = (SHORT_PROMPTS * ((n // len(SHORT_PROMPTS)) + 1))[:n]
         print(f"\nConcurrency={n}...")
-        result = asyncio.run(run_concurrent_batch(prompts, n, api_base))
+        result = asyncio.run(run_concurrent_batch(prompts, n, api_base, model_name))
         result["gpu_memory_mb"] = get_gpu_memory()
         results["short_prompts"][str(n)] = result
         print(f"  Total time: {result['total_time_s']:.2f}s")
@@ -213,7 +224,7 @@ def run_benchmark_suite(api_base, label):
         suffixes = (SHARED_PREFIX_SUFFIXES * ((n // len(SHARED_PREFIX_SUFFIXES)) + 1))[:n]
         prompts = [SHARED_PREFIX + s for s in suffixes]
         print(f"\nConcurrency={n}...")
-        result = asyncio.run(run_concurrent_batch(prompts, n, api_base))
+        result = asyncio.run(run_concurrent_batch(prompts, n, api_base, model_name))
         result["gpu_memory_mb"] = get_gpu_memory()
         results["shared_prefix_prompts"][str(n)] = result
         print(f"  Total time: {result['total_time_s']:.2f}s")
@@ -233,6 +244,10 @@ def main():
                         help="Only test with RadixAttention enabled")
     parser.add_argument("--no-radix-only", action="store_true",
                         help="Only test without RadixAttention")
+    parser.add_argument("--mem-fraction", type=float, default=0.80,
+                        help="SGLang --mem-fraction-static (lowered for L4 24GB)")
+    parser.add_argument("--disable-cuda-graph", action="store_true",
+                        help="Pass --disable-cuda-graph to SGLang server (faster boot, slightly slower inference; needed for AWQ on L4)")
     args = parser.parse_args()
 
     output_path = Path(__file__).resolve().parent.parent / args.output
@@ -244,16 +259,21 @@ def main():
         "dtype": DTYPE,
     }
 
+    extra_server_args = ["--disable-cuda-graph"] if args.disable_cuda_graph else None
+
     # --- Test WITHOUT RadixAttention (for fair comparison with vLLM) ---
     if not args.radix_only:
         proc = None
         if not args.no_launch:
-            proc = launch_server(args.model, args.port)
+            proc = launch_server(args.model, args.port,
+                                 mem_fraction=args.mem_fraction,
+                                 extra_args=extra_server_args)
         try:
             api_base = f"http://localhost:{args.port}"
             wait_for_server(api_base, proc=proc)
             all_results["gpu_memory_serving_mb"] = get_gpu_memory()
-            all_results["no_radix"] = run_benchmark_suite(api_base, "SGLang (no RadixCache)")
+            all_results["no_radix"] = run_benchmark_suite(
+                api_base, "SGLang (no RadixCache)", model_name=args.model)
         finally:
             if proc:
                 kill_server(proc)
@@ -263,12 +283,15 @@ def main():
     if not args.no_radix_only:
         proc = None
         if not args.no_launch:
-            proc = launch_server_with_radix(args.model, args.port)
+            proc = launch_server_with_radix(args.model, args.port,
+                                            mem_fraction=args.mem_fraction,
+                                            extra_args=extra_server_args)
         try:
             api_base = f"http://localhost:{args.port}"
             wait_for_server(api_base, proc=proc)
             all_results["gpu_memory_serving_radix_mb"] = get_gpu_memory()
-            all_results["with_radix"] = run_benchmark_suite(api_base, "SGLang (RadixAttention)")
+            all_results["with_radix"] = run_benchmark_suite(
+                api_base, "SGLang (RadixAttention)", model_name=args.model)
         finally:
             if proc:
                 kill_server(proc)
