@@ -19,7 +19,7 @@
 ## Submission
 
 - **GitHub repository:** [https://github.com/lennonYe/6998_project](https://github.com/lennonYe/6998_project)
-- **Final report:** `deliverables/HPML_Final_Report.pdf`
+- **Final report:** [`deliverables/report.pdf`](deliverables/report.pdf)
 - **Final presentation:** `deliverables/HPML_Final_Presentation.pptx`
 - **Experiment-tracking dashboard:** [Weights & Biases project](https://wandb.ai/shvpz8ctzd-1/llm-serving-benchmark)
 - **Representative run:** [Qwen2.5-1.5B-FP16](https://wandb.ai/shvpz8ctzd-1/llm-serving-benchmark/runs/oscrou8i)
@@ -87,7 +87,8 @@ Representative results below use `Qwen2.5-1.5B-FP16` at concurrency 16 on the L4
 |   |-- bench_profile.py         # PyTorch profiler for baseline path
 |   `-- visualize.py             # Chart generation and WandB upload
 |-- deliverables/
-|   `-- .gitkeep                 # Final report and slides go here
+|   |-- report.pdf               # Final report
+|   `-- .gitkeep                 # Placeholder until final slides are added
 `-- results/
     |-- Qwen2.5-1.5B-FP16/
     |-- Qwen2.5-3B-FP16/
