@@ -8,14 +8,15 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-cd "$SCRIPT_DIR"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+cd "$REPO_ROOT"
 
 ENV_DIR="${ENV_DIR:-$HOME/yym_self_project/envs}"
 
-if [ -f "$SCRIPT_DIR/../.env" ]; then
+if [ -f "$REPO_ROOT/.env" ]; then
     set -a
     # shellcheck disable=SC1091
-    source "$SCRIPT_DIR/../.env"
+    source "$REPO_ROOT/.env"
     set +a
 fi
 
@@ -34,29 +35,29 @@ while IFS=$'\t' read -r LABEL HF_ID QUANT; do
     mkdir -p "$OUT_DIR"
 
     echo "============================================"
-    echo " Model: $LABEL ($HF_ID${QUANT:+ — quant=$QUANT})"
+    echo " Model: $LABEL ($HF_ID${QUANT:+ - quant=$QUANT})"
     echo "============================================"
 
-    # AWQ skipped for HF baseline (bitsandbytes path is different — keep baseline FP16 only).
+    # AWQ skipped for HF baseline (bitsandbytes path is different; keep baseline FP16 only).
     if [ -z "$QUANT" ]; then
         echo "--- baseline ---"
         source "$ENV_DIR/env_baseline/bin/activate"
-        python scripts/bench_baseline.py --model "$HF_ID" --output "$OUT_DIR/baseline_results.json"
+        python src/bench_baseline.py --model "$HF_ID" --output "$OUT_DIR/baseline_results.json"
         deactivate
     fi
 
     echo "--- vLLM ---"
     source "$ENV_DIR/env_vllm/bin/activate"
     if [ -n "$QUANT" ]; then
-        python scripts/bench_vllm.py --model "$HF_ID" --quantization "$QUANT" --output "$OUT_DIR/vllm_results.json"
+        python src/bench_vllm.py --model "$HF_ID" --quantization "$QUANT" --output "$OUT_DIR/vllm_results.json"
     else
-        python scripts/bench_vllm.py --model "$HF_ID" --output "$OUT_DIR/vllm_results.json"
+        python src/bench_vllm.py --model "$HF_ID" --output "$OUT_DIR/vllm_results.json"
     fi
     deactivate
 
     echo "--- SGLang (with + without RadixAttention) ---"
     source "$ENV_DIR/env_sglang/bin/activate"
-    python scripts/bench_sglang.py --model "$HF_ID" --output "$OUT_DIR/sglang_results.json"
+    python src/bench_sglang.py --model "$HF_ID" --output "$OUT_DIR/sglang_results.json"
     deactivate
 
 done <<< "$MODELS_TSV"

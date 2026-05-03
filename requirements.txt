@@ -1,0 +1,12 @@
+# Pinned dependency versions used for reported experiments.
+# Install framework-specific subsets in separate virtual environments as shown in README.md.
+accelerate==1.6.0
+aiohttp==3.11.18
+bitsandbytes==0.45.5
+matplotlib==3.10.1
+requests==2.32.3
+torch==2.6.0
+transformers==4.51.3
+vllm==0.8.4
+wandb==0.19.9
+sglang[all]==0.4.6.post5

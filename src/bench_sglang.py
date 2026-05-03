@@ -17,7 +17,7 @@ import aiohttp
 import requests
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from config import (
+from configs.config import (
     MODEL_NAME, SHORT_PROMPTS, SHARED_PREFIX, SHARED_PREFIX_SUFFIXES,
     CONCURRENCY_LEVELS, MAX_NEW_TOKENS, SGLANG_PORT, DTYPE,
 )

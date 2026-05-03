@@ -13,7 +13,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from config import CONCURRENCY_LEVELS, WANDB_PROJECT
+from configs.config import CONCURRENCY_LEVELS, WANDB_PROJECT
 
 
 def load_results(results_dir):

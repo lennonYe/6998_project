@@ -1,5 +1,5 @@
 """
-PyTorch Profiler — kernel-level analysis of the HF baseline path.
+PyTorch Profiler - kernel-level analysis of the HF baseline path.
 
 We only profile the baseline HF path (vLLM/SGLang run in separate server processes
 which would require more invasive instrumentation). The goal is to understand
@@ -15,7 +15,7 @@ import torch
 from torch.profiler import ProfilerActivity, profile, schedule
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from config import MODEL_NAME, SHARED_PREFIX, MAX_NEW_TOKENS  # noqa: E402
+from configs.config import MODEL_NAME, SHARED_PREFIX, MAX_NEW_TOKENS  # noqa: E402
 
 from transformers import AutoModelForCausalLM, AutoTokenizer  # noqa: E402
 
@@ -74,7 +74,7 @@ def main():
     print(table)
 
     # Write CSV of top kernels (machine-readable).
-    # Newer torch renamed self_cuda_time_total → self_device_time_total.
+    # Newer torch renamed self_cuda_time_total to self_device_time_total.
     def _self_dev(k):
         return getattr(k, "self_device_time_total", None) or getattr(k, "self_cuda_time_total", 0)
 

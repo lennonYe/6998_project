@@ -12,7 +12,7 @@ import argparse
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from config import (
+from configs.config import (
     MODEL_NAME, SHORT_PROMPTS, SHARED_PREFIX, SHARED_PREFIX_SUFFIXES,
     CONCURRENCY_LEVELS, MAX_NEW_TOKENS, TEMPERATURE, DTYPE,
 )
@@ -61,7 +61,7 @@ def generate_one(model, tokenizer, prompt, max_new_tokens):
         "input_tokens": input_len,
         "output_tokens": output_len,
         "total_time_s": elapsed,
-        "ttft_s": elapsed,  # for single request, TTFT ≈ total time for first token
+        "ttft_s": elapsed,  # for single request, TTFT approximates total time for first token
         "tokens_per_sec": output_len / elapsed if elapsed > 0 else 0,
         "text": text,
     }
