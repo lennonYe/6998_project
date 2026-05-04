@@ -180,17 +180,32 @@ async def run_concurrent_batch(prompts, concurrency_label, api_base, model_name=
 
     total_output_tokens = sum(r["output_tokens"] for r in results)
     batch_time = batch_end - batch_start
+    ttfts = [r["ttft_s"] for r in results]
+    latencies = [r["total_time_s"] for r in results]
 
     return {
         "num_requests": len(prompts),
         "concurrency": concurrency_label,
         "total_time_s": batch_time,
-        "avg_ttft_s": sum(r["ttft_s"] for r in results) / len(results),
+        "avg_ttft_s": sum(ttfts) / len(ttfts),
+        "p50_ttft_s": percentile(ttfts, 50),
+        "p95_ttft_s": percentile(ttfts, 95),
         "avg_tokens_per_sec": sum(r["tokens_per_sec"] for r in results) / len(results),
         "total_throughput_tps": total_output_tokens / batch_time if batch_time > 0 else 0,
-        "avg_latency_s": sum(r["total_time_s"] for r in results) / len(results),
+        "avg_latency_s": sum(latencies) / len(latencies),
+        "p50_latency_s": percentile(latencies, 50),
+        "p95_latency_s": percentile(latencies, 95),
         "per_request": results,
     }
+
+
+def percentile(values, pct):
+    """Return the nearest-rank percentile from a non-empty list."""
+    if not values:
+        return 0.0
+    sorted_values = sorted(values)
+    rank = round((pct / 100) * (len(sorted_values) - 1))
+    return sorted_values[rank]
 
 
 def get_gpu_memory():
