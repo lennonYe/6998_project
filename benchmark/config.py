@@ -87,6 +87,49 @@ SHARED_PREFIX_SUFFIXES = [
     "Critique the API design and propose alternatives.",
 ]
 
+# Prompt metadata used for benchmark reproducibility and report appendix.
+PROMPT_SUITE_DESCRIPTION = {
+    "short_prompts": (
+        "Sixteen independent short prompts covering factual QA, programming, "
+        "systems, math, translation, and database/networking concepts. They "
+        "approximate low-context interactive chatbot requests and avoid prompt "
+        "reuse up to concurrency=16."
+    ),
+    "shared_prefix_prompts": (
+        "Sixteen prompts formed by concatenating one long Python-code analysis "
+        "prefix with task-specific suffixes. This creates a controlled shared "
+        "prefix workload for measuring prefix caching and RadixAttention effects."
+    ),
+}
+
+SHARED_PREFIX_PROMPTS = [
+    SHARED_PREFIX + suffix for suffix in SHARED_PREFIX_SUFFIXES
+]
+
+DATA_SYNTHESIS_PROMPT = """
+You are preparing a reproducible benchmark prompt suite for evaluating LLM
+serving systems under different request patterns.
+
+Generate two prompt categories:
+1. Short prompts: concise user requests across factual QA, coding, math,
+   systems, networking, and database topics. Each prompt should be answerable
+   without external documents and should fit a low-context chat workload.
+2. Shared-prefix prompts: start from a single long code-review prefix, then
+   create diverse suffix instructions that ask for bug finding, performance
+   analysis, refactoring, testing, memory estimation, async conversion,
+   logging, error handling, and API-design critique.
+
+Requirements:
+- Produce at least 16 prompts per category to support concurrency levels up to
+  16 without immediate prompt cycling.
+- Keep temperature fixed at 0.0 during benchmarking so output variance does not
+  dominate latency and throughput measurements.
+- Keep the shared prefix identical across that category so prefix caching can be
+  isolated from unrelated prompt-length differences.
+- Avoid prompts that require web browsing, private data, or nondeterministic
+  external state.
+"""
+
 # Concurrency levels to test
 CONCURRENCY_LEVELS = [1, 2, 4, 8, 16]
 
