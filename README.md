@@ -32,18 +32,24 @@ discussed in the final report.
 ## Project Structure
 
 ```
-benchmark/
-├── config.py                 # Shared config (models, prompts, params)
-├── run_all.sh                # Run full pipeline
-├── run_single.sh             # Run individual benchmarks
-├── scripts/
-│   ├── bench_baseline.py     # HuggingFace baseline (sequential)
-│   ├── bench_vllm.py         # vLLM server + concurrent requests
-│   ├── bench_sglang.py       # SGLang server ± RadixAttention
-│   ├── bench_profile.py      # PyTorch Profiler (kernel-level)
-│   └── visualize.py          # Charts + WandB upload
-└── results/                  # Output JSON + figures
+.
+├── README.md                  # Project overview, setup, reproducibility notes
+├── requirements.txt           # Pinned top-level dependencies used in the runs
+├── LICENSE                    # MIT license
+├── deliverables/              # Final report PDF and presentation deck
+└── benchmark/
+    ├── config.py              # Shared config (models, prompts, params)
+    ├── run_all.sh             # Run full pipeline
+    ├── run_single.sh          # Run individual benchmarks
+    ├── scripts/
+    │   ├── bench_baseline.py  # HuggingFace baseline (sequential)
+    │   ├── bench_vllm.py      # vLLM server + concurrent requests
+    │   ├── bench_sglang.py    # SGLang server ± RadixAttention
+    │   ├── bench_profile.py   # PyTorch Profiler (kernel-level)
+    │   └── visualize.py       # Charts + WandB upload
+    └── results/               # Output JSON + figures
 ```
+
 
 ## Environment Setup (L4)
 
@@ -74,6 +80,11 @@ source ~/yym_self_project/envs/env_sglang/bin/activate
 pip install "sglang[all]" aiohttp requests
 ```
 
+The root `requirements.txt` records the pinned top-level package versions used
+for the reported L4 runs. Because vLLM, SGLang, and the HuggingFace baseline
+may require incompatible transitive dependencies, the three-environment setup
+above is the recommended way to reproduce the full sweep.
+
 ## Secrets
 
 Copy `.env.example` → `.env` (gitignored) and fill in:
@@ -98,6 +109,13 @@ cd benchmark
 ./run_single.sh visualize-wandb     # charts + WandB upload
 ```
 
+## Deliverables
+
+The final report PDF and presentation deck are committed under `deliverables/`:
+
+- `deliverables/Group24_HPML_Final_Report.pdf`
+- `deliverables/Group24_HPML_Final_Presentation_Deck.pdf`
+
 ## Metrics Measured
 
 - **TTFT** (Time to First Token): prefill latency
@@ -111,3 +129,13 @@ cd benchmark
 - **Models**: Qwen2.5-1.5B-Instruct, Qwen2.5-3B-Instruct, Llama-3.2-1B-Instruct
 - **Quantization**: FP16 (baseline), INT4 (AWQ), FP8 (vLLM)
 - **Prompt types**: short Q&A vs shared-prefix code-analysis (tests RadixAttention)
+
+## AI Tool Use
+
+We used AI tools as an auxiliary aid for code navigation, debugging support,
+LaTeX/README polishing, and submission-checklist review. The benchmark design,
+experiment execution, profiling interpretation, reported performance analysis,
+and final technical conclusions were reviewed and validated by the project
+team. No private data, model checkpoints, or course-restricted materials were
+provided to AI tools beyond project files and submission instructions needed
+for formatting and reproducibility checks.
