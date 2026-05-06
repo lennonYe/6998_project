@@ -132,10 +132,6 @@ The final report PDF and presentation deck are committed under `deliverables/`:
 
 ## AI Tool Use
 
-We used AI tools as an auxiliary aid for code navigation, debugging support,
-LaTeX/README polishing, and submission-checklist review. The benchmark design,
-experiment execution, profiling interpretation, reported performance analysis,
-and final technical conclusions were reviewed and validated by the project
-team. No private data, model checkpoints, or course-restricted materials were
-provided to AI tools beyond project files and submission instructions needed
-for formatting and reproducibility checks.
+The project team did not use AI tools for this project, including benchmark design, code
+implementation, experiment execution, profiling interpretation, performance analysis, and report
+writing. All submitted materials were completed and reviewed by the project team.
